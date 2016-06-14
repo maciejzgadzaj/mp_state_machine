@@ -1,0 +1,139 @@
+<?php
+/**
+ * @file
+ * MP State Machine main module file.
+ */
+
+include_once 'mp_state_machine.inc';
+
+/**
+ * Implements hook_ctools_plugin_type().
+ */
+function mp_state_machine_ctools_plugin_type() {
+  $plugins = array(
+    'plugins' => array(
+      'cache' => TRUE,
+      'use hooks' => TRUE,
+      'info file' => TRUE,
+      'alterable' => TRUE,
+      'classes' => array('handler')
+    ),
+  );
+  return $plugins;
+}
+
+/**
+ * Implements hook_state_flow_plugins().
+ */
+function mp_state_machine_mp_state_machine_plugins() {
+  $info = array();
+  $info['mp_state_flow'] = array(
+    'handler' => array(
+      'class' => 'MPStateFlow',
+      'path' => drupal_get_path('module', 'mp_state_machine') . '/plugins',
+      'file' => 'mp_state_flow.inc',
+    ),
+  );
+  return $info;
+}
+
+/**
+ * Implements hook_entity_property_info_alter().
+ *
+ * Adds a "state" property on nodes that are configured with state flow.
+ */
+function mp_states_machines_entity_property_info_alter(&$info) {
+  $types = mp_state_machine_types();
+
+  foreach ($types as $type_name => $type_info) {
+    foreach ($type_info['entity_types'] as $entity_type) {
+      $info[$entity_type]['properties'][$type_name] = array(
+        'type' => 'text',
+        'label' => $type_info['label'],
+        'description' => $type_info['description'],
+//        'getter callback' => 'mp_state_machine_entity_get_state',
+      );
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function mp_state_machine_entity_insert($entity, $entity_type) {
+  $entity_type_state_types = mp_state_machine_entity_types();
+  if (in_array($entity_type, array_keys($entity_type_state_types))) {
+    if ($state_types = $entity_type_state_types[$entity_type]) {
+      foreach ($state_types as $state_type) {
+        $state_machine = mp_state_machine_load($entity_type, $entity, $state_type);
+        $state_machine->persist();
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function mp_state_machine_entity_update($entity, $entity_type) {
+  if ($entity_type == 'commerce_order') {
+
+    // If order status was changed, let's update its state machine too.
+    if ($entity->status != $entity->original->status) {
+      mp_state_machine_order_state_update($entity);
+    }
+    // If order status was not changed, we still need to update its revision.
+    else {
+      mp_state_machine_order_state_keep($entity);
+    }
+  }
+}
+
+/**
+ * Update order state machine if order status has been updated.
+ *
+ * @param object $order
+ *   An order which has just been updated.
+ *
+ * @see mp_state_machine_entity_insert()
+ * @see mp_state_machine_entity_update()
+ */
+function mp_state_machine_order_state_update($order) {
+  $state_machine = mp_state_machine_load('commerce_order', $order, 'status');
+
+  // Update order state.
+  $event_name = 'to_' . $order->status;
+  $state_machine->fire_event($event_name);
+
+  // Update states of all order's line items.
+  if (!empty($order->commerce_line_items)) {
+    $wrapper = entity_metadata_wrapper('commerce_order', $order);
+    foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
+      $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), 'status');
+      // Only update line item's state if it is a new line item, or its current
+      // state is the same as order's previous state. This is because the line
+      // item's state might differ from the order's state, and in such situation
+      // we do not want to update them automatically together with the order.
+      if (empty($order->original) || $line_item_state_machine->get_current_state() == $order->original->status) {
+        $state_machine->fire_event($event_name);
+      }
+    }
+  }
+}
+
+/**
+ * Persist order state machine if order status has not been updated.
+ *
+ * @param object $order
+ *   An order which has just been updated.
+ *
+ * @see mp_state_machine_entity_insert()
+ * @see mp_state_machine_entity_update()
+ */
+function mp_state_machine_order_state_keep($order) {
+  // Update order state machine to the most recent order revision.
+  $state_machine = mp_state_machine_load('commerce_order', $order, 'status');
+  $state_machine->persist();
+
+  // No need to do anything with line items, as they don't support revisions.
+}

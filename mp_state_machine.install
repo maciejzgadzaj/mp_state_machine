@@ -1,0 +1,67 @@
+<?php
+/**
+ * @file
+ * Install file for the MP State Machine module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function mp_state_machine_schema() {
+  $schema['mp_state_machine'] = array(
+    'description' => 'Saves the current state of an entity.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'Unique record ID.',
+      ),
+      'entity_type' => array(
+        'description' => 'The entity type.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'entity_id' => array(
+        'description' => 'The entity ID.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+      ),
+      'revision_id' => array(
+        'description' => 'The current entity version identifier.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'type' => array(
+        'description' => 'The state type.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'state' => array(
+        'description' => 'The state.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'timestamp' => array(
+        'description' => 'The Unix timestamp when this state was set.',
+        'type' => 'int',
+        'not null' => FALSE,
+        'unsigned' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('id'),
+    'indexes' => array(
+      'entity_type' => array('entity_type'),
+      'entity_id' => array('entity_id'),
+      'revision_id' => array('revision_id'),
+      'type' => array('type'),
+    ),
+  );
+
+  return $schema;
+}
