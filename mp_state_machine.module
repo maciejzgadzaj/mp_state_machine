@@ -4,55 +4,32 @@
  * MP State Machine main module file.
  */
 
-include_once 'mp_state_machine.inc';
+include_once 'mp_state_machine.info.inc';
+include_once 'includes/mp_state_machine.states.inc';
 
 /**
- * Implements hook_ctools_plugin_type().
+ * Implements hook_views_api().
  */
-function mp_state_machine_ctools_plugin_type() {
-  $plugins = array(
-    'plugins' => array(
-      'cache' => TRUE,
-      'use hooks' => TRUE,
-      'info file' => TRUE,
-      'alterable' => TRUE,
-      'classes' => array('handler')
-    ),
+function mp_state_machine_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'mp_state_machine') . '/includes/views',
   );
-  return $plugins;
 }
 
 /**
- * Implements hook_state_flow_plugins().
+ * Implements hook_entity_load();
  */
-function mp_state_machine_mp_state_machine_plugins() {
-  $info = array();
-  $info['mp_state_flow'] = array(
-    'handler' => array(
-      'class' => 'MPStateFlow',
-      'path' => drupal_get_path('module', 'mp_state_machine') . '/plugins',
-      'file' => 'mp_state_flow.inc',
-    ),
-  );
-  return $info;
-}
-
-/**
- * Implements hook_entity_property_info_alter().
- *
- * Adds a "state" property on nodes that are configured with state flow.
- */
-function mp_states_machines_entity_property_info_alter(&$info) {
-  $types = mp_state_machine_types();
-
-  foreach ($types as $type_name => $type_info) {
-    foreach ($type_info['entity_types'] as $entity_type) {
-      $info[$entity_type]['properties'][$type_name] = array(
-        'type' => 'text',
-        'label' => $type_info['label'],
-        'description' => $type_info['description'],
-//        'getter callback' => 'mp_state_machine_entity_get_state',
-      );
+function mp_state_machine_entity_load($entities, $entity_type) {
+  $entity_type_state_types = mp_state_machine_entity_type_state_types();
+  if (in_array($entity_type, array_keys($entity_type_state_types))) {
+    if ($state_types = $entity_type_state_types[$entity_type]) {
+      foreach (array_keys($state_types) as $state_type) {
+        foreach ($entities as &$entity) {
+          $state_machine = mp_state_machine_load($entity_type, $entity, $state_type);
+          $entity->$state_type = $state_machine->get_current_state();
+        }
+      }
     }
   }
 }
@@ -61,10 +38,10 @@ function mp_states_machines_entity_property_info_alter(&$info) {
  * Implements hook_entity_insert().
  */
 function mp_state_machine_entity_insert($entity, $entity_type) {
-  $entity_type_state_types = mp_state_machine_entity_types();
+  $entity_type_state_types = mp_state_machine_entity_type_state_types();
   if (in_array($entity_type, array_keys($entity_type_state_types))) {
     if ($state_types = $entity_type_state_types[$entity_type]) {
-      foreach ($state_types as $state_type) {
+      foreach (array_keys($state_types) as $state_type) {
         $state_machine = mp_state_machine_load($entity_type, $entity, $state_type);
         $state_machine->persist();
       }
@@ -99,7 +76,7 @@ function mp_state_machine_entity_update($entity, $entity_type) {
  * @see mp_state_machine_entity_update()
  */
 function mp_state_machine_order_state_update($order) {
-  $state_machine = mp_state_machine_load('commerce_order', $order, 'status');
+  $state_machine = mp_state_machine_load('commerce_order', $order, MP_STATE_MACHINE_CHECKOUT_STATE);
 
   // Update order state.
   $event_name = 'to_' . $order->status;
@@ -109,7 +86,7 @@ function mp_state_machine_order_state_update($order) {
   if (!empty($order->commerce_line_items)) {
     $wrapper = entity_metadata_wrapper('commerce_order', $order);
     foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
-      $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), 'status');
+      $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), MP_STATE_MACHINE_CHECKOUT_STATE);
       // Only update line item's state if it is a new line item, or its current
       // state is the same as order's previous state. This is because the line
       // item's state might differ from the order's state, and in such situation
@@ -132,8 +109,72 @@ function mp_state_machine_order_state_update($order) {
  */
 function mp_state_machine_order_state_keep($order) {
   // Update order state machine to the most recent order revision.
-  $state_machine = mp_state_machine_load('commerce_order', $order, 'status');
+  $state_machine = mp_state_machine_load('commerce_order', $order, MP_STATE_MACHINE_CHECKOUT_STATE);
   $state_machine->persist();
-
   // No need to do anything with line items, as they don't support revisions.
+}
+
+/**
+ * Inform external systems about a workflow transition.
+ *
+ * @param \MPStateFlow $state_machine
+ *   A state machine object used to fire the event.
+ * @param string $event_key
+ *   A name of the event that has just been fired.
+ *
+ * @see MPStateFlow::fire_event()
+ */
+function mp_state_machine_invoke_event_handlers(MPStateFlow $state_machine, $event_key) {
+  // Load related objects.
+  $entity_type = $state_machine->get_entity_type();
+  $entity = entity_load_single($entity_type, $state_machine->get_entity_id());
+
+  if (is_object($entity)) {
+    $state_type = $state_machine->get_state_type();
+    $state = $state_machine->get_current_state();
+
+    // Invoke the Rules state_flow_event_fired event.
+    if (module_exists('rules')) {
+      rules_invoke_event('mp_state_machine_event_fired', $entity_type, $entity, $state_type, $state, $event_key);
+    }
+
+    module_invoke_all('mp_state_machine_event_fired', $entity_type, $entity, $state_type, $state, $event_key);
+  }
+}
+
+/**
+ * Implements hook_entity_view_alter().
+ *
+ * Displays order states on the admin order view page.
+ *
+ * @see mp_entities_preprocess_entity_property()
+ */
+function mp_state_machine_commerce_order_view_alter(&$build) {
+  // Add MP State Machine states.
+  $entity_type_state_types = mp_state_machine_entity_type_state_types();
+  if (!empty($entity_type_state_types['commerce_order'])) {
+    foreach ($entity_type_state_types['commerce_order'] as $state_type_name => $state_type_info) {
+      $build['mp_state_machine_' . $state_type_name] = array(
+        '#theme' => 'entity_property',
+        '#label_hidden' => FALSE,
+        '#label' => $state_type_info['label'],
+        '#title_attributes' => array('abc' => 'cba'),
+        '#entity_type' => 'commerce_order',
+        '#entity_wrapped' => entity_metadata_wrapper('commerce_order', $build['#entity']),
+        '#property_name' => $state_type_name,
+        '#weight' => -6,
+      );
+    }
+  }
+}
+
+/**
+ * Implements hook_preprocess_HOOK() for theme_entity_property().
+ *
+ * @see mp_entities_commerce_order_view_alter()
+ */
+function mp_state_machine_preprocess_entity_property(&$variables, $hook) {
+  // Add field classes to make labels bold.
+  $variables['attributes_array']['class'][] = 'field';
+  $variables['title_attributes_array']['class'][] = 'field-label';
 }

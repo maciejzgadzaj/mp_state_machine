@@ -34,7 +34,7 @@ class MPStateFlow extends StateMachine {
       $this->create_state($state_name, $options);
     }
 
-    $this->entity_types = mp_state_machine_entity_types();
+    $this->entity_types = mp_state_machine_entity_type_state_types();
 
     // Initialize events.
     $events = mp_state_machine_events_type($this->type);
@@ -89,13 +89,21 @@ class MPStateFlow extends StateMachine {
   }
 
   /**
-   * Extending fire_event() from state_machine's base.inc to add uid and log
-   * arguments.
+   * Extending fire_event() from state_machine's base.inc to add custom
+   * processing.
    */
-  public function fire_event($key, $uid = NULL, $log = '') {
+  public function fire_event($key) {
     $event = $this->get_event($key);
 
-    if ($event && ($new_state = $event->execute())) {
+    if (!$event) {
+      $this->error(t('Invalid event "@event_name" for state type "@state_type".', array(
+        '@event_name' => $key,
+        '@state_type' => $this->get_state_type(),
+      )));
+      return FALSE;
+    }
+
+    if ($new_state = $event->execute()) {
       // Allow the previous state to run its 'on_exit' callbacks.
       $this->get_state($this->get_current_state())->on_exit();
 
@@ -121,9 +129,8 @@ class MPStateFlow extends StateMachine {
       // Allow the event to "finish".
       $event->finish();
 
-      // Allow state_flow to provide other hooks or event triggers.
-      // @TODO.
-//      state_flow_invoke_event_handlers($this, $key, $uid, $log);
+      // Allow other modules to react to the workflow transition.
+      mp_state_machine_invoke_event_handlers($this, $key);
     }
     else {
       $this->on_event_fail($event);
@@ -166,37 +173,6 @@ class MPStateFlow extends StateMachine {
 
     return $state;
   }
-
-  public function set_node_revision() {
-    $vid = $this->get_latest_revision($this->object->nid);
-    if (!empty($vid) && ($vid != $this->object->vid)) {
-      $rev_state_rec = $this->revision_state_record($this->object->nid, $this->object->vid);
-      state_flow_promote_node_revision($rev_state_rec, $this->object->nid, $this->object->vid);
-    }
-    $result = db_update('node_revision')
-        ->fields(array(
-          'status' => 1,
-        ))
-        ->condition('vid', $vid)
-        ->execute();
-  }
-
-//  public function set_principle_revision() {
-//    $nid = $this->object->nid;
-//    $vid = $this->get_latest_revision($nid);
-//    $result = db_update('node_revision_states')
-//      ->fields(array(
-//        'status' => 0,
-//      ))
-//      ->condition('nid', $nid)
-//      ->condition('vid', $vid, '!=')
-//      ->execute();
-//  }
-
-//  public function get_latest_revision($nid) {
-//    $result = db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $nid))->fetchCol('vid');
-//    return !empty($result[0]) ? $result[0] : FALSE;
-//  }
 
   public function existing_revision($type, $entity_type, $entity_id, $revision_id) {
     $result = db_select('mp_state_machine', 'mpcs')
@@ -247,12 +223,13 @@ class MPStateFlow extends StateMachine {
   }
 
   public function on_event_fail($event) {
-    $key = array_search($event, $this->events);
-    watchdog('mp_state_machine', 'Could not transition %entity_type %entity_id using %event event.', array(
-      '%entity_type' => $this->entity_type,
-      '%entity_id' => $this->get_entity_id(),
-      '%event' => $key,
-    ), WATCHDOG_ERROR);
+    $event_name = array_search($event, $this->events);
+    $this->error(t('Could not transition @entity_type @entity_id\'s "@state_type" using "@event" event.', array(
+      '@entity_type' => $this->entity_type,
+      '@entity_id' => $this->get_entity_id(),
+      '@state_type' => $this->get_state_type(),
+      '@event_name' => $event_name,
+    )));
   }
 
   /**
@@ -277,10 +254,26 @@ class MPStateFlow extends StateMachine {
     $info = entity_get_info($this->entity_type);
     return ($this->supports_revisions() && !empty($this->object->{$info['entity keys']['revision']})) ? $this->object->{$info['entity keys']['revision']} : 0;
   }
+
+  protected function error($message, $code = 0) {
+    watchdog('mp_state_machine', $message, array(), WATCHDOG_ERROR);
+    throw new MPStateFlow_Exception(strip_tags($message), $code, $this);
+  }
 }
 
 class MPStateFlow_Event extends StateMachine_Event {
+  protected $original_state;
 
+  public function __construct($key, $machine, $options = array()) {
+    parent::__construct($key, $machine, $options);
+
+    // Store the state of the object before transition.
+    $this->original_state = $machine->get_current_state();
+  }
+
+  /**
+   * @return MPStateFlow
+   */
   public function get_machine() {
     return $this->machine;
   }
@@ -306,35 +299,97 @@ class MPStateFlow_Event extends StateMachine_Event {
     parent::finish();
 
     $state_machine = $this->get_machine();
-    
-    if ($state_machine->get_entity_type() == 'commerce_order') {
-      $order = $state_machine->get_object();
-      $state_type = $state_machine->get_state_type();
-      $entity_type_state_types = mp_state_machine_entity_types();
-      if (in_array($state_type, $entity_type_state_types['commerce_line_item']) && !empty($order->commerce_line_items)) {
-        $wrapper = entity_metadata_wrapper('commerce_order', $order);
+    $state_type = $state_machine->get_state_type();
+    $object = $state_machine->get_object();
+    $entity_type = $state_machine->get_entity_type();
+
+    // If we updated a state of an entity that supports revisions, a new
+    // revision has been created. Therefore we might need to save all other
+    // state type entries for this entity in the database.
+    if ($state_machine->supports_revisions()) {
+      $entity_type_state_types = mp_state_machine_entity_type_state_types();
+      if (count($entity_type_state_types[$entity_type] > 1)) {
+        $other_state_types = array_diff(array_keys($entity_type_state_types[$entity_type]), array($state_type));
+        foreach ($other_state_types as $other_state_type) {
+          $other_state_machine = mp_state_machine_load($entity_type, $object, $other_state_type);
+          $other_state_machine->persist();
+        }
+      }
+    }
+
+    // If it was the order that just got updated, we might want to also update
+    // all its line item states.
+    if ($entity_type == 'commerce_order') {
+      $entity_type_state_types = mp_state_machine_entity_type_state_types();
+      // We want to update the line item state only if it has the same state
+      // type as the one that just got updated in the order.
+      if (in_array($state_type, array_keys($entity_type_state_types['commerce_line_item'])) && !empty($object->commerce_line_items)) {
+        $wrapper = entity_metadata_wrapper('commerce_order', $object);
         foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
           $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), $state_type);
-          if ($line_item_state_machine->get_current_state() == $order->original->status) {
+          // Only update line item's state if its current state is the same as
+          // order's previous state. This is because the line item's state might
+          // differ from the order's state, and in such situation we do not want
+          // to update them automatically together with the order.
+          if ($line_item_state_machine->get_current_state() == $this->original_state) {
             $line_item_state_machine->fire_event($this->key);
           }
         }
       }
     }
-    
-    if ($state_machine->get_entity_type() == 'commerce_line_item') {
-      $line_item = $state_machine->get_object();
-      $order = commerce_order_load($line_item->order_id);
+
+    // If it was line item that just got updated, we might want to create
+    // a new order revision to keep track of this change.
+    if ($entity_type == 'commerce_line_item') {
+      $order = commerce_order_load($object->order_id);
       $order_state_machine = mp_state_machine_load('commerce_order', $order, $state_machine->get_state_type());
+      // We want to create a new order revision only if it was just a single
+      // line item update - not invoked from the order state update, as in such
+      // case the revision has already been created.
       if ($state_machine->get_current_state() != $order_state_machine->get_current_state()) {
         $order->revision = TRUE;
         $order->log = t('State machine: Updated line item @line_item_id %type state to %new_state.', array(
-          '@line_item_id' => $line_item->line_item_id,
+          '@line_item_id' => $object->line_item_id,
           '%type' => $state_machine->get_state_type(),
           '%new_state' => $state_machine->get_current_state(),
         ));
         commerce_order_save($order);
       }
     }
+  }
+}
+
+/**
+ * A exception thrown by services and related modules when something goes
+ * wrong.
+ */
+class MPStateFlow_Exception extends Exception {
+  private $data;
+
+  /**
+   * Constructor for the ServicesException.
+   *
+   * @param string $message
+   *  Error message.
+   * @param int $code
+   *  Optional. Error code. This often maps to the HTTP status codes. Defaults
+   *  to 0.
+   * @param mixed $data
+   *  Information that can be used by the server to return information about
+   *  the error.
+   */
+  public function __construct($message, $code = 0, $data = NULL) {
+    parent::__construct($message, $code);
+
+    $this->data = !empty($data) ? $data : $message;
+  }
+
+  /**
+   * Returns the data associated with the exception.
+   *
+   * @return mixed
+   */
+  public function getData() {
+    return $this->data;
   }
 }
