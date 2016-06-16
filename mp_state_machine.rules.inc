@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Rules integration for State Flow.
+ * Rules integration for mp_state_machine module.
  */
 
 /**

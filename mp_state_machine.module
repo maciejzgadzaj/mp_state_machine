@@ -1,7 +1,8 @@
 <?php
+
 /**
  * @file
- * MP State Machine main module file.
+ * mp_state_machine main module file.
  */
 
 include_once 'mp_state_machine.info.inc';

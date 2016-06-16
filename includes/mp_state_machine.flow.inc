@@ -2,7 +2,7 @@
 
 /**
  * @file
- * MP Commerce implementation of the State Machine class.
+ * mp_state_machine implementation of the StateMachine class.
  */
 
 state_machine_load_class_file();

@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * @file
+ * Contains pre-defined state types, states and events for the mp_state_machine.
+ */
+
 define('MP_STATE_MACHINE_CHECKOUT_STATE', 'checkout_state');
 define('MP_STATE_MACHINE_PAYMENT_STATE', 'payment_state');
 

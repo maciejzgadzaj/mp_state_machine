@@ -1,7 +1,8 @@
 <?php
+
 /**
  * @file
- * MP State Machine main module file.
+ * Provides metadata for the entity state properties.
  */
 
 /**
@@ -20,7 +21,9 @@ function mp_state_machine_entity_property_info_alter(&$info) {
         'type' => 'text',
         'options list' => 'mp_state_machine_entity_property_options_list',
         'getter callback' => 'mp_state_machine_entity_property_get_state',
-//        'setter callback' => 'mp_state_machine_entity_property_set_state',
+        // We do not want to define custom 'setter callback', as it would save
+        // the new value before the entity is saved, which might not be the
+        // required behaviour.
         'entity views field' => TRUE,
       );
     }
