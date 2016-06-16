@@ -10,7 +10,7 @@ define('MP_STATE_MACHINE_PAYMENT_STATE', 'payment_state');
  *   An array of state types.
  */
 function mp_state_machine_types() {
-  return array(
+  $types = array(
     // Duplicate standard commerce_order statuses to the commerce_line_items.
     MP_STATE_MACHINE_CHECKOUT_STATE => array(
       'label' => t('Checkout state'),
@@ -23,6 +23,11 @@ function mp_state_machine_types() {
       'entity_types' => array('commerce_order', 'commerce_line_item'),
     ),
   );
+
+  // Allow other modules to alter pre-defined state types.
+  drupal_alter('mp_state_machine_types', $types);
+
+  return $types;
 }
 
 /**
@@ -80,6 +85,9 @@ function mp_state_machine_states() {
       'label' => 'Refused',
     ),
   );
+
+  // Allow other modules to alter pre-defined states.
+  drupal_alter('mp_state_machine_states', $states);
 
   return $states;
 }
@@ -150,6 +158,9 @@ function mp_state_machine_events() {
       'origin' => array('initialized', 'completed'),
     ),
   );
+
+  // Allow other modules to alter pre-defined events.
+  drupal_alter('mp_state_machine_events', $events);
 
   return $events;
 }
