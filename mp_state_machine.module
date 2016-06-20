@@ -109,9 +109,16 @@ function mp_state_machine_order_state_update($order) {
  * @see mp_state_machine_entity_update()
  */
 function mp_state_machine_order_state_keep($order) {
-  // Update order state machine to the most recent order revision.
-  $state_machine = mp_state_machine_load('commerce_order', $order, MP_STATE_MACHINE_CHECKOUT_STATE);
-  $state_machine->persist();
+  // If a new order revision was created, but order status was not changed,
+  // let's just persist all order states, to save a new entry for each state
+  // in the database with the new order revision_id.
+  $entity_type_state_types = mp_state_machine_entity_type_state_types();
+  if ($entity_type_state_types['commerce_order']) {
+    foreach (array_keys($entity_type_state_types['commerce_order']) as $state_type) {
+      $state_machine = mp_state_machine_load('commerce_order', $order, $state_type);
+      $state_machine->persist();
+    }
+  }
   // No need to do anything with line items, as they don't support revisions.
 }
 

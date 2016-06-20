@@ -107,6 +107,13 @@ class MPStateFlow extends StateMachine {
       // Allow the previous state to run its 'on_exit' callbacks.
       $this->get_state($this->get_current_state())->on_exit();
 
+      // Set and save the new state.
+      // This needs to be done before creating a new revision of an entity,
+      // to make sure that the new state is available in hook_entity_update()
+      // implementations.
+      $this->set_current_state($new_state);
+      $this->persist();
+
       // First create new entity revision for this entity update if this entity
       // type supports revision, and there was no new revision created for this
       // update so far.
@@ -118,10 +125,6 @@ class MPStateFlow extends StateMachine {
         ));
         entity_save($this->entity_type, $this->object);
       }
-
-      // Set and save the new state.
-      $this->set_current_state($new_state);
-      $this->persist();
 
       // Allow the new state to run its 'on_enter' callbacks.
       $this->get_state($this->get_current_state())->on_enter();
