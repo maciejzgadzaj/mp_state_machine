@@ -24,6 +24,7 @@ function mp_state_machine_entity_property_info_alter(&$info) {
         // We do not want to define custom 'setter callback', as it would save
         // the new value before the entity is saved, which might not be the
         // required behaviour.
+        'computed' => TRUE,
         'entity views field' => TRUE,
       );
     }
