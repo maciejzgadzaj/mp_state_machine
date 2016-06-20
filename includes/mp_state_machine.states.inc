@@ -203,11 +203,11 @@ function mp_state_machine_events_type($type) {
 function mp_state_machine_load($entity_type, $entity, $state_type, $reset = FALSE) {
   $objects = &drupal_static(__FUNCTION__);
 
-  list($entity_id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+  list($entity_id, $revision_id, $bundle) = entity_extract_ids($entity_type, $entity);
 
-  if (!isset($objects[$entity_type][$entity_id][$state_type]) || $reset) {
-    $objects[$entity_type][$entity_id][$state_type] = new MPStateFlow($entity_type, $entity, $state_type);
+  if (!isset($objects[$entity_type][$entity_id][$revision_id][$state_type]) || $reset) {
+    $objects[$entity_type][$entity_id][$revision_id][$state_type] = new MPStateFlow($entity_type, $entity, $state_type);
   }
 
-  return $objects[$entity_type][$entity_id][$state_type];
+  return $objects[$entity_type][$entity_id][$revision_id][$state_type];
 }
