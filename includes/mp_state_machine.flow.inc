@@ -224,7 +224,7 @@ class MPStateFlow extends StateMachine {
 
   public function on_event_fail($event) {
     $event_name = array_search($event, $this->events);
-    $this->error(t('Could not transition @entity_type @entity_id\'s "@state_type" using "@event" event.', array(
+    $this->error(t('Could not transition @entity_type @entity_id\'s "@state_type" using "@event_name" event.', array(
       '@entity_type' => $this->entity_type,
       '@entity_id' => $this->get_entity_id(),
       '@state_type' => $this->get_state_type(),
