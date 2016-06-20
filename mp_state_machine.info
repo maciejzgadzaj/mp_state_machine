@@ -7,3 +7,4 @@ dependencies[] = commerce_order
 dependencies[] = ctools
 dependencies[] = state_machine
 files[] = includes/mp_state_machine.flow.inc
+files[] = includes/views/handlers/mp_state_machine_handler_field_state.inc
