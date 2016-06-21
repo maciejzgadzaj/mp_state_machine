@@ -73,10 +73,12 @@ function hook_mp_state_machine_events_alter(&$events) {
  *   A new state value.
  * @param string $event_key
  *   A name of the event that has just been fired.
+ * @param string $log
+ *   A log message for the event that has just been fired.
  *
  * @see mp_state_machine_rules_event_info()
  */
-function hook_mp_state_machine_event_fired($entity_type, $entity, $state_type, $state, $event_key) {
+function hook_mp_state_machine_event_fired($entity_type, $entity, $state_type, $state, $event_key, $log) {
   $entity_info = entity_get_info($entity_type);
   list($entity_id, , ) = entity_extract_ids($entity_type, $entity);
   $state_types = mp_state_machine_types();

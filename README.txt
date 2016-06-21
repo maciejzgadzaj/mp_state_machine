@@ -59,7 +59,7 @@ USAGE
 
   $line_item = commerce_line_item_load(<line_item_id>);
   $state_machine = mp_state_machine_load('commerce_line_item', $line_item, MP_STATE_MACHINE_PAYMENT_STATE);
-  $state_machine->fire_event('to_completed');
+  $state_machine->fire_event('to_completed', 'Manually updated line item payment state to completed.');
   var_dump($state_machine->get_current_state());
 
 

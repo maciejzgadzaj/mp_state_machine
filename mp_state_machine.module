@@ -129,10 +129,12 @@ function mp_state_machine_order_state_keep($order) {
  *   A state machine object used to fire the event.
  * @param string $event_key
  *   A name of the event that has just been fired.
+ * @param string $log
+ *   A log message for the event that has just been fired.
  *
  * @see MPStateFlow::fire_event()
  */
-function mp_state_machine_invoke_event_handlers(MPStateFlow $state_machine, $event_key) {
+function mp_state_machine_invoke_event_handlers(MPStateFlow $state_machine, $event_key, $log) {
   // Load related objects.
   $entity_type = $state_machine->get_entity_type();
   $entity = entity_load_single($entity_type, $state_machine->get_entity_id());
@@ -143,10 +145,10 @@ function mp_state_machine_invoke_event_handlers(MPStateFlow $state_machine, $eve
 
     // Invoke the Rules state_flow_event_fired event.
     if (module_exists('rules')) {
-      rules_invoke_event('mp_state_machine_event_fired', $entity_type, $entity, $state_type, $state, $event_key);
+      rules_invoke_event('mp_state_machine_event_fired', $entity_type, $entity, $state_type, $state, $event_key, $log);
     }
 
-    module_invoke_all('mp_state_machine_event_fired', $entity_type, $entity, $state_type, $state, $event_key);
+    module_invoke_all('mp_state_machine_event_fired', $entity_type, $entity, $state_type, $state, $event_key, $log);
   }
 }
 

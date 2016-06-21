@@ -24,6 +24,7 @@ function mp_state_machine_rules_event_info() {
           'state_type' => array('type' => 'text', 'label' => t('state type')),
           'state' => array('type' => 'text', 'label' => t('state')),
           'event_key' => array('type' => 'text', 'label' => t('event key')),
+          'log' => array('type' => 'text', 'label' => t('log message')),
         ),
       );
     }
