@@ -13,6 +13,8 @@ class MPStateFlow extends StateMachine {
   protected $log;
 
   private $entity_types;
+  // By default we want new revisions to be created.
+  private $create_new_revisions = TRUE;
 
   public function __construct($entity_type, $object, $type) {
     $this->entity_type = $entity_type;
@@ -114,14 +116,15 @@ class MPStateFlow extends StateMachine {
       // Set and save the new state.
       // This needs to be done before creating a new revision of an entity,
       // to make sure that the new state is available in hook_entity_update()
-      // implementations.
+      // implementations. But we cannot persist it just yet, as it would save
+      // a new record in the 'mp_state_machine' database table with the old
+      // 'revision_id' value (as the new revision is created only below).
       $this->set_current_state($new_state);
-      $this->persist();
 
       // First create new entity revision for this entity update if this entity
       // type supports revision, and there was no new revision created for this
       // update so far.
-      if ($this->supports_revisions() && empty($this->object->revision) && empty($this->object->is_new)) {
+      if ($this->create_new_revisions && $this->supports_revisions() && empty($this->object->revision) && empty($this->object->is_new)) {
         $this->object->revision = TRUE;
         $this->object->log = !empty($log) ? $log : t('State machine: Updated %type state to %new_state.', array(
           '%type' => $this->type,
@@ -129,6 +132,9 @@ class MPStateFlow extends StateMachine {
         ));
         entity_save($this->entity_type, $this->object);
       }
+
+      // Now that we have a new revision created, we can persist the new state.
+      $this->persist();
 
       // Allow the new state to run its 'on_enter' callbacks.
       $this->get_state($this->get_current_state())->on_enter();
@@ -272,6 +278,14 @@ class MPStateFlow extends StateMachine {
     return $this->log;
   }
 
+  public function set_create_new_revisions($create_new_revisions = TRUE) {
+    $this->create_new_revisions = $create_new_revisions;
+  }
+
+  public function get_create_new_revisions() {
+    return $this->create_new_revisions;
+  }
+
   protected function error($message, $code = 0) {
     watchdog('mp_state_machine', $message, array(), WATCHDOG_ERROR);
     throw new MPStateFlow_Exception(strip_tags($message), $code, $this);
@@ -347,6 +361,9 @@ class MPStateFlow_Event extends StateMachine_Event {
         foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
           // Load the state machine for this line item.
           $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), $state_type);
+          // As the order should have a new revision just created, we do not
+          // want to create new revisions for it for each updated line item.
+          $line_item_state_machine->set_create_new_revisions(FALSE);
 
           // Only update line item's state if its current state is the same as
           // order's previous state. This is because the line item's state might
@@ -370,17 +387,19 @@ class MPStateFlow_Event extends StateMachine_Event {
       // case the revision has already been created.
       if ($state_machine->get_current_state() != $order_state_machine->get_current_state()) {
 
-        // Get the log message from the state machine.
-        $log = $state_machine->get_log();
+        // Create a new order revision if required.
+        if ($state_machine->get_create_new_revisions()) {
+          // Get the log message from the state machine.
+          $log = $state_machine->get_log();
 
-        // Create a new order revision.
-        $order->revision = TRUE;
-        $order->log = !empty($log) ? $log : t('State machine: Updated line item @line_item_id %type state to %new_state.', array(
-          '@line_item_id' => $object->line_item_id,
-          '%type' => $state_machine->get_state_type(),
-          '%new_state' => $state_machine->get_current_state(),
-        ));
-        commerce_order_save($order);
+          $order->revision = TRUE;
+          $order->log = !empty($log) ? $log : t('State machine: Updated line item @line_item_id %type state to %new_state.', array(
+            '@line_item_id' => $object->line_item_id,
+            '%type' => $state_machine->get_state_type(),
+            '%new_state' => $state_machine->get_current_state(),
+          ));
+          commerce_order_save($order);
+        }
       }
     }
   }

@@ -88,6 +88,9 @@ function mp_state_machine_order_state_update($order) {
     $wrapper = entity_metadata_wrapper('commerce_order', $order);
     foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
       $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), MP_STATE_MACHINE_CHECKOUT_STATE);
+      // As the order should have a new revision just created, we do not
+      // want to create new revisions for it for each updated line item.
+      $line_item_state_machine->set_create_new_revisions(FALSE);
       // Only update line item's state if it is a new line item, or its current
       // state is the same as order's previous state. This is because the line
       // item's state might differ from the order's state, and in such situation
