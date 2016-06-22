@@ -71,6 +71,7 @@ function mp_state_machine_views_default_views_alter(&$views) {
               'id' => $state_type_name,
               'table' => 'commerce_order_revision',
               'field' => $state_type_name,
+              'format_name' => 1,
             );
           }
         }
