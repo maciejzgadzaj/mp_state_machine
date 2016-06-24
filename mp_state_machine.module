@@ -39,6 +39,8 @@ function mp_state_machine_entity_load($entities, $entity_type) {
  * Implements hook_entity_insert().
  */
 function mp_state_machine_entity_insert($entity, $entity_type) {
+  // When a new entity supporting states is created, populate the state
+  // database table with values for each of its states.
   $entity_type_state_types = mp_state_machine_entity_type_state_types();
   if (in_array($entity_type, array_keys($entity_type_state_types))) {
     if ($state_types = $entity_type_state_types[$entity_type]) {
@@ -48,22 +50,35 @@ function mp_state_machine_entity_insert($entity, $entity_type) {
       }
     }
   }
+
+  // When creating a new order, set its line items' checkout_state values
+  // to the same values as order's checkout_state.
+  if ($entity_type == 'commerce_order') {
+    if (!empty($entity->commerce_line_items)) {
+      $wrapper = entity_metadata_wrapper('commerce_order', $entity);
+      foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
+        $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), MP_STATE_MACHINE_CHECKOUT_STATE);
+        // As the order should have a new revision just created, we do not
+        // want to create new revisions for it for each updated line item.
+        $line_item_state_machine->set_create_new_revisions(FALSE);
+        $line_item_state_machine->set_create_new_order_revisions(FALSE);
+        $event_name = 'to_' . $entity->status;
+        $line_item_state_machine->fire_event($event_name);
+      }
+    }
+  }
 }
 
 /**
  * Implements hook_entity_update().
  */
 function mp_state_machine_entity_update($entity, $entity_type) {
-  if ($entity_type == 'commerce_order') {
-
-    // If order status was changed, let's update its state machine too.
-    if ($entity->status != $entity->original->status) {
-      mp_state_machine_order_state_update($entity);
-    }
-    // If order status was not changed, we still need to update its revision.
-    else {
-      mp_state_machine_order_state_keep($entity);
-    }
+  // If order status was changed, let's update its state machine too.
+  if ($entity_type == 'commerce_order' && $entity->status != $entity->original->status) {
+    mp_state_machine_order_state_update($entity);
+  }
+  elseif (mp_state_machine_entity_type_supports_revisions($entity_type)) {
+    mp_state_machine_entity_state_persist($entity_type, $entity);
   }
 }
 
@@ -82,24 +97,6 @@ function mp_state_machine_order_state_update($order) {
   // Update order state.
   $event_name = 'to_' . $order->status;
   $state_machine->fire_event($event_name);
-
-  // Update states of all order's line items.
-  if (!empty($order->commerce_line_items)) {
-    $wrapper = entity_metadata_wrapper('commerce_order', $order);
-    foreach ($wrapper->commerce_line_items as $line_item_wrapper) {
-      $line_item_state_machine = mp_state_machine_load('commerce_line_item', $line_item_wrapper->value(), MP_STATE_MACHINE_CHECKOUT_STATE);
-      // As the order should have a new revision just created, we do not
-      // want to create new revisions for it for each updated line item.
-      $line_item_state_machine->set_create_new_revisions(FALSE);
-      // Only update line item's state if it is a new line item, or its current
-      // state is the same as order's previous state. This is because the line
-      // item's state might differ from the order's state, and in such situation
-      // we do not want to update them automatically together with the order.
-      if (empty($order->original) || $line_item_state_machine->get_current_state() == $order->original->status) {
-        $state_machine->fire_event($event_name);
-      }
-    }
-  }
 }
 
 /**
@@ -111,18 +108,17 @@ function mp_state_machine_order_state_update($order) {
  * @see mp_state_machine_entity_insert()
  * @see mp_state_machine_entity_update()
  */
-function mp_state_machine_order_state_keep($order) {
+function mp_state_machine_entity_state_persist($entity_type, $entity) {
   // If a new order revision was created, but order status was not changed,
   // let's just persist all order states, to save a new entry for each state
   // in the database with the new order revision_id.
   $entity_type_state_types = mp_state_machine_entity_type_state_types();
-  if ($entity_type_state_types['commerce_order']) {
-    foreach (array_keys($entity_type_state_types['commerce_order']) as $state_type) {
-      $state_machine = mp_state_machine_load('commerce_order', $order, $state_type);
+  if (!empty($entity_type_state_types[$entity_type])) {
+    foreach (array_keys($entity_type_state_types[$entity_type]) as $state_type) {
+      $state_machine = mp_state_machine_load($entity_type, $entity, $state_type);
       $state_machine->persist();
     }
   }
-  // No need to do anything with line items, as they don't support revisions.
 }
 
 /**
@@ -190,4 +186,18 @@ function mp_state_machine_preprocess_entity_property(&$variables, $hook) {
   // Add field classes to make labels bold.
   $variables['attributes_array']['class'][] = 'field';
   $variables['title_attributes_array']['class'][] = 'field-label';
+}
+
+/**
+ * Returns a boolean indicating whether an entity type supports revisions.
+ *
+ * @param string $entity_type
+ *   An entity type to check for the revision support.
+ *
+ * @return bool
+ *   A boolean indicating whether an entity type supports revisions or not.
+ */
+function mp_state_machine_entity_type_supports_revisions($entity_type) {
+  $info = entity_get_info($entity_type);
+  return (!empty($info['entity keys']['revision'])) ? TRUE : FALSE;
 }
