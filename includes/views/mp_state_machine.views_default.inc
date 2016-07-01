@@ -80,4 +80,29 @@ function mp_state_machine_views_default_views_alter(&$views) {
     }
     $handler->display->display_options['fields'] = $new_fields;
   }
+
+  // Add State Machine state columns to admin 'Line item revisions' view
+  // (provided by the Commerce Line Item Revision module).
+  if (isset($views['commerce_line_item_revisions'])) {
+    $handler = &$views['commerce_line_item_revisions']->display['default']->handler;
+    $new_fields = array();
+
+    foreach ($handler->display->display_options['fields'] as $id => $field) {
+      // Add state columns before the 'Log message' column.
+      if ($id == 'log') {
+        if (!empty($entity_type_state_types['commerce_line_item'])) {
+          foreach ($entity_type_state_types['commerce_line_item'] as $state_type_name => $state_type_info) {
+            $new_fields[$state_type_name] = array(
+              'id' => $state_type_name,
+              'table' => 'commerce_line_item_revision',
+              'field' => $state_type_name,
+              'format_name' => 1,
+            );
+          }
+        }
+      }
+      $new_fields[$id] = $field;
+    }
+    $handler->display->display_options['fields'] = $new_fields;
+  }
 }
