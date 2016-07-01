@@ -96,7 +96,8 @@ function mp_state_machine_order_state_update($order) {
 
   // Update order state.
   $event_name = 'to_' . $order->status;
-  $state_machine->fire_event($event_name);
+  $log = isset($order->log) ? $order->log : '';
+  $state_machine->fire_event($event_name, $log);
 }
 
 /**
