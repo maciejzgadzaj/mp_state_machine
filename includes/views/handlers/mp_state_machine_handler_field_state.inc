@@ -16,7 +16,7 @@ class mp_state_machine_handler_field_state extends views_handler_field {
     parent::construct();
 
     // Set real_field in order to make it generate a field_alias.
-    $this->real_field = 'order_id';
+    $this->real_field = 'revision_id';
   }
 
 
