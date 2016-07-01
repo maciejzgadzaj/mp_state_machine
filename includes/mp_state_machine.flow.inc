@@ -53,6 +53,15 @@ class MPStateFlow extends StateMachine {
   private $create_new_order_revisions = TRUE;
 
   /**
+   * For events fired on line item entities, we need to know whether the line
+   * item state update was caused by relevant order state update, or was called
+   * directly.
+   *
+   * @var bool
+   */
+  private $is_order_update = FALSE;
+
+  /**
    * MPStateFlow constructor.
    *
    * @param string $entity_type
@@ -509,6 +518,26 @@ class MPStateFlow extends StateMachine {
   }
 
   /**
+   * Toggles the info value whether this is an order state update.
+   *
+   * @param bool $is_order_update
+   *   A boolean indicating whether this is an order state update.
+   */
+  public function set_is_order_update($is_order_update) {
+    $this->is_order_update = $is_order_update;
+  }
+
+  /**
+   * Returns whether this is an order state update.
+   *
+   * @return bool
+   *   A boolean indicating whether this is an order state update.
+   */
+  public function get_is_order_update() {
+    return $this->is_order_update;
+  }
+
+  /**
    * Handles entity state processing errors.
    *
    * @param string $message
@@ -612,6 +641,9 @@ class MPStateFlow_Event extends StateMachine_Event {
           // As the order should have a new revision just created, we do not
           // want to create new revisions for it for each updated line item.
           $line_item_state_machine->set_create_new_order_revisions(FALSE);
+          // Notify the line item state machine that the event was fired
+          // from the order state update process.
+          $line_item_state_machine->set_is_order_update(TRUE);
 
           if (
             // Only update line item's state if its current state is the same as
@@ -638,7 +670,7 @@ class MPStateFlow_Event extends StateMachine_Event {
       // We want to create a new order revision only if it was just a single
       // line item update - not invoked from the order state update, as in such
       // case the revision has already been created.
-      if ($state_machine->get_current_state() != $order_state_machine->get_current_state()) {
+      if (!$state_machine->get_is_order_update()) {
 
         // Get the log message from the state machine.
         $log = $state_machine->get_log();
