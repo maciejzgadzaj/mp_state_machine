@@ -240,7 +240,8 @@ class MPStateFlow extends StateMachine {
       // update so far.
       if ($this->create_new_revisions && $this->supports_revisions() && empty($this->object->revision) && empty($this->object->is_new)) {
         $this->object->revision = TRUE;
-        $this->object->log = !empty($log) ? $log : t('State machine: Updated %type state to %new_state.', array(
+        $this->object->log = !empty($log) ? $log : t('State machine: Updated @entity_type %type to %new_state.', array(
+          '@entity_type' => $this->get_is_order_update() ? 'order' : '',
           '%type' => $this->type,
           '%new_state' => $new_state,
         ));
